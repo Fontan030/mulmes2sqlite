@@ -19,7 +19,7 @@ class VKhtmlParser:
         self.vk_encoding = 'cp1251'
         self.bs4_backend = bs4_backend
         self.proc_count = proc_count if mp_enabled else 1
-        print(f'VKhtmlParser backend: {bs4_backend}, core count: {self.proc_count}')
+        print(f'VKhtmlParser backend: {bs4_backend}, process count: {self.proc_count}')
         self.own_user_id = 0
         self.usernames_dict = dict()
         self.months_dict = {
