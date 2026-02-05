@@ -6,13 +6,18 @@ class TGjsonParser:
     def __init__(self):
         self.usernames_dict = dict()
         self.default_filename = 'result.json'
+        self.tg_encoding = 'utf-8'
         self.plain_txt_types = ('plain', 'hashtag', 'custom_emoji','bot_command', 'phone')
         self.attachment_attrs = [ 'file_name', 'file_size', 'width', 'height', 'duration_seconds' ]
-        self.not_included_str = '(File not included. Change data exporting settings to download.)'
+        self.not_included_strs = [
+            "(File not included. Change data exporting settings to download.)",
+            "(File exceeds maximum size. Change data exporting settings to download.)",
+            "(File unavailable, please try again later)"
+            ]
     
     def read_json_file(self, filepath):
         try:
-            with open(filepath, 'r') as f:
+            with open(filepath, 'r', encoding=self.tg_encoding) as f:
                 return json.loads(f.read())
         except Exception as e:
             logging.error(f'Error reading file: {e}')
@@ -153,7 +158,7 @@ class TGjsonParser:
             attachments['type'] = 'poll'
             attachments['data'] = msg['poll']
 
-        if attachments.get('local_path') == self.not_included_str:
+        if attachments.get('local_path') in self.not_included_strs:
             attachments['local_path'] = 'not_included'
         if attachments.get('type'):
             if '_file' in attachments['type']:
