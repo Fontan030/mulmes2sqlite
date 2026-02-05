@@ -1,7 +1,9 @@
+import os
 from sqlite_utils import Database
 
 class DBHandler:
     def __init__(self, db_path):
+        self.db_path = db_path
         self.src_dict = {
             'vk': 1,
             'tg': 2,
@@ -10,6 +12,9 @@ class DBHandler:
         self.msg_counter = 0
         if self.db['messages'].exists() == False:
             self.create_db()
+            self.init_db_size = 0
+        else:
+            self.init_db_size = os.path.getsize(db_path)
 
     def create_db(self):
         self.db['chats'].create({

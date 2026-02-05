@@ -14,6 +14,7 @@ class TGjsonParser:
             "(File exceeds maximum size. Change data exporting settings to download.)",
             "(File unavailable, please try again later)"
             ]
+        self.read_bytes_count = 0
     
     def read_json_file(self, filepath):
         try:
@@ -35,7 +36,9 @@ class TGjsonParser:
 
     def process_data_entry(self, data_entry):
         output_chat_list = []
-        json_data = self.read_json_file(data_entry['path'])
+        json_path = data_entry['path']
+        json_data = self.read_json_file(json_path)
+        self.read_bytes_count += os.path.getsize(json_path)
         if data_entry['chat_count'] == 1:
             chat_obj = self.process_single_chat(json_data)
             output_chat_list.append(chat_obj)

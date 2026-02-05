@@ -49,6 +49,7 @@ class VKhtmlParser:
             'money_request': 'Запрос на денежный перевод',
             'deleted_msg': 'Сообщение удалено'}
         self.attachment_types_inv = {v: k for k, v in self.attachment_types.items()}
+        self.read_bytes_count = 0
 
     def read_htm_file(self, filepath):
         try:
@@ -80,9 +81,10 @@ class VKhtmlParser:
         if self.proc_count != 1:
             with multiprocessing.Pool(self.proc_count) as pool:
                 p = pool.imap(self.process_single_html, html_list, chunksize=8)
-                for message_chunk, users_subset in tqdm(p, total=len(html_list)):
+                for message_chunk, users_subset, r_b_count in tqdm(p, total=len(html_list)):
                     msg_list.extend(message_chunk)
                     chat_users.update(users_subset)
+                    self.read_bytes_count += r_b_count
         else:
             for file in tqdm(html_list):
                 message_chunk, users_subset = self.process_single_html(file)
@@ -101,6 +103,7 @@ class VKhtmlParser:
         users_subset = dict()
         html_content = self.read_htm_file(html_path)
         soup = BeautifulSoup(html_content, self.bs4_backend)
+        r_b_count = os.path.getsize(html_path)
 
         for msg_div in soup.find_all('div', class_='message'):
             is_service_msg = 0
@@ -142,7 +145,7 @@ class VKhtmlParser:
                 'data_src': 1}
             msg_list.append(processed_msg)
 
-        return msg_list, users_subset
+        return msg_list, users_subset, r_b_count
 
     def parse_user(self, header_div):
         user_link = header_div.find('a')

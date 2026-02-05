@@ -56,7 +56,12 @@ def parse_chats(data_entries_list, data_parser):
     dbhandler.update_ids_in_db()
     elapsed_time = round(time.time() - start_time, 3)
     print(f'Done! Total time spent: {elapsed_time}s')
-
+    r_data_size = data_parser.read_bytes_count
+    current_db_size = os.path.getsize(dbhandler.db_path)
+    w_data_size = current_db_size - dbhandler.init_db_size
+    in_out_ratio = round(w_data_size * 100 / r_data_size, 2)
+    r_data_size, w_data_size = fmt_size(r_data_size), fmt_size(w_data_size)
+    print(f'Read {r_data_size} of data, written {w_data_size} ({in_out_ratio}% of original)')
 
 def select_chats(data_entries_list):
     new_data_entries_list = []
@@ -73,6 +78,13 @@ def select_chats(data_entries_list):
     for i in selected_indexes:
         new_data_entries_list.append(data_entries_list[i-1])
     parse_chats(new_data_entries_list, data_parser)
+
+def fmt_size(num, suffix='B'):
+    for unit in ('', 'Ki', 'Mi', 'Gi'):
+        if abs(num) < 1024.0:
+            return f'{num:3.1f} {unit}{suffix}'
+        num /= 1024.0
+    return f'{num:.1f} Ti{suffix}'
 
 def main():
     global data_parser, selected_parser, dbhandler
