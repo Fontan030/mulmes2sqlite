@@ -37,9 +37,11 @@ class DBHandler:
             'is_service_msg': int,
             'edited': int,
             'has_formatting': int,
+            'reply_to_id': int, # generated
             'msg_id_orig': int,
             'chat_id_orig': int,
             'from_id_orig': int,
+            'reply_to_id_orig': int,
             'data_src': int
         }, pk='msg_id')
         self.db['usernames'].create({
@@ -48,7 +50,7 @@ class DBHandler:
             'orig_id': int,
             'data_src': int
         }, pk='user_id')
-        self.db.create_view('messages_view', '''
+        self.db.create_view('messages_view', """
             SELECT chats.chat_name,
             datetime(messages.date, "unixepoch", "localtime") AS "date",
             usernames.name AS "from",
@@ -60,7 +62,7 @@ class DBHandler:
             JOIN chats ON messages.chat_id = chats.chat_id
             JOIN usernames ON messages.from_id = usernames.user_id
             ORDER BY messages.date;
-        ''')
+        """)
 
     def insert_chat_to_db(self, chat_obj, data_src):
         msg_list = chat_obj['msg_list']
@@ -90,16 +92,26 @@ class DBHandler:
         self.db['usernames'].insert_all({k: v for k, v in user.items() } for user in new_users)
 
     def update_ids_in_db(self):
-        update_from_id_query = '''
+        update_from_id_query = """
         UPDATE messages
         SET from_id = (SELECT user_id FROM usernames WHERE orig_id = messages.from_id_orig)
         WHERE from_id IS NULL;
-        '''
-        update_chat_id_query = '''
+        """
+        update_chat_id_query = """
         UPDATE messages
         SET chat_id = (SELECT chat_id FROM chats WHERE chat_id_orig = messages.chat_id_orig)
         WHERE chat_id IS NULL;
-        '''
+        """
+        update_reply_to_id_query = """
+        UPDATE messages
+        SET reply_to_id = (SELECT msg2.msg_id FROM messages AS msg2
+        WHERE msg2.chat_id = messages.chat_id
+        AND msg2.msg_id_orig = messages.reply_to_id_orig)
+        WHERE reply_to_id_orig IS NOT NULL
+        AND reply_to_id IS NULL;
+        """
         with self.db.conn:
             self.db.execute(update_from_id_query)
             self.db.execute(update_chat_id_query)
+            print('Updating message reply IDs...')
+            self.db.execute(update_reply_to_id_query)

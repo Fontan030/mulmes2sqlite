@@ -80,6 +80,7 @@ class TGjsonParser:
                 'is_service_msg': is_service_msg,
                 'edited': edited,
                 'has_formatting': has_formatting,
+                'reply_to_id_orig': msg.get('reply_to_message_id'),
                 'data_src': 2}
             if not fwd_from_id:
                 processed_msg['text'] = msg_text
