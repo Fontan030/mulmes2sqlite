@@ -19,6 +19,7 @@ class DBHandler:
     def create_db(self):
         self.db['chats'].create({
             'chat_id': int, # generated
+            'peer_type': str,
             'chat_name': str,
             'last_msg_date': int,
             'msg_count': int,
@@ -67,6 +68,7 @@ class DBHandler:
         last_msg = max(msg_list, key=lambda x:x['date'])
         self.db['chats'].insert({
             'chat_id_orig': chat_obj['id'],
+            'peer_type': chat_obj['peer_type'],
             'chat_name': chat_obj['name'],
             'last_msg_date': last_msg['date'],
             'msg_count': len(msg_list),

@@ -14,6 +14,13 @@ class TGjsonParser:
             "(File exceeds maximum size. Change data exporting settings to download.)",
             "(File unavailable, please try again later)"
             ]
+        self.peer_types = {
+            'personal_chat': 'user',
+            'private_supergroup': 'group_chat',
+            'public_supergroup': 'group_chat',
+            'bot_chat': 'bot',
+            'public_channel': 'channel'
+            }
         self.read_bytes_count = 0
     
     def read_json_file(self, filepath):
@@ -51,6 +58,7 @@ class TGjsonParser:
     def process_single_chat(self, json_chat):
         msg_list = []
         chat_id = json_chat['id']
+        peer_type = self.peer_types.get(json_chat['type'])
         chat_name = json_chat['name'] if json_chat.get('name') else 'DELETED'
         
         for msg in json_chat['messages']:
@@ -87,6 +95,7 @@ class TGjsonParser:
             msg_list.append(processed_msg)
         chat_obj = {
             'id': chat_id,
+            'peer_type': peer_type,
             'name': chat_name,
             'msg_list': msg_list}
         return chat_obj
@@ -148,18 +157,18 @@ class TGjsonParser:
     def parse_attachments(self, msg):
         attachments = dict()
         if msg.get('media_type'):
-            attachments['type'] = msg['media_type']
-            attachments['local_path'] = msg['file']
+            attachments['type'] = msg.get('media_type')
+            attachments['local_path'] = msg.get('file')
         elif msg.get('photo'):
             attachments['type'] = 'photo'
-            attachments['local_path'] = msg['photo']
-            attachments['file_size'] = msg['photo_file_size']
+            attachments['local_path'] = msg.get('photo')
+            attachments['file_size'] = msg.get('photo_file_size')
         elif msg.get('file'):
             attachments['type'] = 'file'
-            attachments['local_path'] = msg['file']
+            attachments['local_path'] = msg.get('file')
         elif msg.get('poll'):
             attachments['type'] = 'poll'
-            attachments['data'] = msg['poll']
+            attachments['data'] = msg.get('poll')
 
         if attachments.get('local_path') in self.not_included_strs:
             attachments['local_path'] = 'not_included'

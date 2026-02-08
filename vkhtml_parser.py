@@ -75,7 +75,8 @@ class VKhtmlParser:
     def process_data_entry(self, data_entry):
         chat_users = dict()
         data_path = data_entry['path']
-        chat_id = os.path.basename(data_path)
+        chat_id = int( os.path.basename(data_path) )
+        peer_type = self.get_peer_type(chat_id)
         html_list = [os.path.join(data_path, f) for f in os.listdir(data_path) if f.endswith('.html')]
         msg_list = []
         if self.proc_count != 1:
@@ -93,6 +94,7 @@ class VKhtmlParser:
         self.usernames_dict.update(chat_users)
         chat_obj = {
             'id': chat_id,
+            'peer_type': peer_type,
             'name': data_entry['name'],
             'msg_list': msg_list}
         return [ chat_obj ]
@@ -241,3 +243,10 @@ class VKhtmlParser:
         except:
             own_username = own_name_placeholder
         return own_username
+
+    def get_peer_type(self, chat_id):
+        if chat_id >= 0:
+            peer_type = 'user' if chat_id < 2000000000 else 'group_chat'
+        else:
+            peer_type = 'bot'
+        return peer_type
