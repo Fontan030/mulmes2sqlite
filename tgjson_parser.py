@@ -15,10 +15,13 @@ class TGjsonParser:
             "(File unavailable, please try again later)"
             ]
         self.peer_types = {
+            'verification_codes': 'service',
             'personal_chat': 'user',
+            'bot_chat': 'bot',
+            'private_group': 'group_chat',
             'private_supergroup': 'group_chat',
             'public_supergroup': 'group_chat',
-            'bot_chat': 'bot',
+            'private_channel': 'channel',
             'public_channel': 'channel'
             }
         self.read_bytes_count = 0
@@ -58,18 +61,25 @@ class TGjsonParser:
     def process_single_chat(self, json_chat):
         msg_list = []
         chat_id = json_chat['id']
-        peer_type = self.peer_types.get(json_chat['type'])
+        tg_chat_type = json_chat['type']
+        if tg_chat_type in self.peer_types.keys():
+            peer_type = self.peer_types[tg_chat_type]
+        else:
+            peer_type = tg_chat_type
         chat_name = json_chat['name'] if json_chat.get('name') else 'DELETED'
         
         for msg in json_chat['messages']:
             if msg['type'] == 'message':
-                is_service_msg = 0
+                is_service_msg, service_msg_data = 0, None
                 user_id = self.parse_user(msg['from_id'], msg['from'])
+                msg_text, has_formatting = self.parse_msg_text(msg)
+                reply_to_id = msg.get('reply_to_message_id')
             elif msg['type'] == 'service':
-                is_service_msg = 1
+                is_service_msg, has_formatting = 1, 0
                 user_id = self.parse_user(msg['actor_id'], msg['actor'])
+                msg_text, service_msg_data = self.parse_service_msg(msg)
+                reply_to_id = msg.get('message_id')
             date, edited = self.parse_date(msg)
-            msg_text, has_formatting = self.parse_msg_text(msg)
             attachments = self.parse_attachments(msg)
             fwd_from_id = self.parse_fwd_from_id(msg)
             processed_msg = {
@@ -78,9 +88,10 @@ class TGjsonParser:
                 'from_id_orig': user_id,
                 'date': date,
                 'is_service_msg': is_service_msg,
+                'service_msg_data': service_msg_data,
                 'edited': edited,
                 'has_formatting': has_formatting,
-                'reply_to_id_orig': msg.get('reply_to_message_id'),
+                'reply_to_id_orig': reply_to_id,
                 'data_src': 2}
             if not fwd_from_id:
                 processed_msg['text'] = msg_text
@@ -151,8 +162,6 @@ class TGjsonParser:
                     print(f'Unknown formatting type {etype}')
         if not msg_text and msg.get('sticker_emoji'):
             msg_text = msg['sticker_emoji']
-        elif msg.get('type') == 'service':
-            msg_text = msg.get('action') # temporary workaround
         return msg_text, has_formatting
 
     def parse_attachments(self, msg):
@@ -184,7 +193,7 @@ class TGjsonParser:
                 attachments[attr] = msg[attr]
 
         if attachments:
-            return attachments
+            return [ attachments ]
         else:
             return None
 
@@ -194,3 +203,22 @@ class TGjsonParser:
             return fwd_from_id
         else:
             return None
+
+    def parse_service_msg(self, msg):
+        msg_data = dict()
+        action_text = msg.get('action')
+        if msg.get('title'):
+            msg_data['title'] = msg['title']
+        if msg.get('members'):
+            members_list = [ {'username': u} for u in msg.get('members') ]
+            if len(members_list) == 1 and not msg_data.get('title'):
+                msg_data = members_list[0]
+            else:
+                msg_data['members'] = members_list # for create_group action
+            if action_text == 'remove_members':
+                if members_list[0]['username'] == msg.get('actor'):
+                    action_text = 'leave_chat'
+                    msg_data = None
+
+        service_msg_data = msg_data if msg_data else None
+        return action_text, service_msg_data

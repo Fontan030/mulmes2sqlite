@@ -21,6 +21,7 @@ class VKhtmlParser:
         self.proc_count = proc_count if mp_enabled else 1
         print(f'VKhtmlParser backend: {bs4_backend}, process count: {self.proc_count}')
         self.own_user_id = 0
+        self.read_bytes_count = 0
         self.usernames_dict = dict()
         self.months_dict = {
             'янв': '01', 'фев': '02', 'мар': '03', 'апр': '04',
@@ -49,7 +50,21 @@ class VKhtmlParser:
             'money_request': 'Запрос на денежный перевод',
             'deleted_msg': 'Сообщение удалено'}
         self.attachment_types_inv = {v: k for k, v in self.attachment_types.items()}
-        self.read_bytes_count = 0
+        self.srv_actions_dict = {
+            'создал': 'create_group',
+            'пригласил': 'invite_members',
+            'по ссылке': 'join_group_by_link', # присоединилась / присоединился
+            'исключил': 'remove_members',
+            'из чата': 'leave_chat',    # вышла / вышел
+            'вернул': 'return_to_chat', # вернулась / вернулся
+            'закрепил': 'pin_message',
+            'открепил': 'unpin_message',
+            'обновил': 'edit_group_photo',  # фотографию чата
+            'удалил': 'delete_group_photo', # фотографию чата
+            'название': 'edit_group_title', # изменил(а) название чата
+            'оформление': 'edit_chat_theme', # изменил(а) оформление чата
+            'скриншот': 'take_screenshot' # сделал(а) скриншот чата
+            }
 
     def read_htm_file(self, filepath):
         try:
@@ -108,11 +123,11 @@ class VKhtmlParser:
         r_b_count = os.path.getsize(html_path)
 
         for msg_div in soup.find_all('div', class_='message'):
-            is_service_msg = 0
+            is_service_msg, service_msg_data = 0, None
             msg_id = msg_div.get('data-id')
             header = msg_div.find('div', class_='message__header')
             if header:
-                user_id, username = self.parse_user(header)
+                user_id, username = self.parse_msg_header(header)
                 users_subset[user_id] = username
                 date_str = header.text.split(', ')[1]
                 date, edited = self.parse_date(date_str)
@@ -123,10 +138,13 @@ class VKhtmlParser:
             if kludges_div:
                 attachments_raw = kludges_div.find_all('div', class_='attachment')
                 attachments, fwd_messages = self.parse_attachments(attachments_raw)
+                if attachments_raw:
+                    for att_div in attachments_raw:
+                        att_div.decompose()
                 service_msg_div = kludges_div.find('a', class_='im_srv_lnk')
                 if service_msg_div:
                     is_service_msg = 1
-                    msg_text = kludges_div.text
+                    msg_text, service_msg_data = self.parse_service_msg(kludges_div)
                 kludges_div.decompose()
             else:
                 attachments, fwd_messages = None, None
@@ -142,6 +160,7 @@ class VKhtmlParser:
                 'attachments': attachments,
                 'fwd_messages': fwd_messages,
                 'is_service_msg': is_service_msg,
+                'service_msg_data': service_msg_data,
                 'edited': edited,
                 'has_formatting': 0,
                 'data_src': 1}
@@ -149,20 +168,24 @@ class VKhtmlParser:
 
         return msg_list, users_subset, r_b_count
 
-    def parse_user(self, header_div):
+    def parse_msg_header(self, header_div):
         user_link = header_div.find('a')
         if not user_link:
             user_id, username = self.own_user_id, self.own_username
         else:
             username = user_link.text
-            user_id_str = user_link.get('href').split('/')[-1]
-            id_digits = ''.join(filter(str.isdigit, user_id_str))
-            if user_id_str[:2] == 'id':
-                user_id = int(id_digits)
-            else: #if UID prefix is 'club' or 'public'
-                user_id = int(id_digits) * -1
-
+            vk_url = user_link.get('href')
+            user_id = self.extract_uid_from_url(vk_url)
         return user_id, username
+
+    def extract_uid_from_url(self, vk_url):
+        user_id_str = vk_url.split('/')[-1]
+        id_digits = ''.join(filter(str.isdigit, user_id_str))
+        if user_id_str[:2] == 'id':
+            user_id = int(id_digits)
+        else: #if UID prefix is 'club' or 'public'
+            user_id = int(id_digits) * -1
+        return user_id
 
     def parse_date(self, date_str):
         edited = 0
@@ -247,6 +270,32 @@ class VKhtmlParser:
     def get_peer_type(self, chat_id):
         if chat_id >= 0:
             peer_type = 'user' if chat_id < 2000000000 else 'group_chat'
+            if chat_id == 100:
+                peer_type = 'service'
         else:
             peer_type = 'bot'
         return peer_type
+
+    def parse_service_msg(self, kludges_div):
+        action_text, service_msg_data = '', None
+        links_list = kludges_div.select('div > a')
+        action_text_raw = links_list[0].next_element.next_element
+        for k, v in self.srv_actions_dict.items():
+            if k in action_text_raw:
+                action_text = v
+                break
+        if not action_text:
+            action_text, service_msg_data = 'unknown', action_text_raw
+        if len(links_list) > 1:
+            try:
+                username = links_list[1].text
+                vk_url = links_list[1].get('href')
+                user_id = self.extract_uid_from_url(vk_url)
+                service_msg_data = {'user_id': user_id, 'username': username}
+            except:
+                pass
+        bold_txt_list = kludges_div.select('div > b')
+        if bold_txt_list:
+            chat_title = bold_txt_list[-1].text
+            service_msg_data = {'title': chat_title}
+        return action_text, service_msg_data

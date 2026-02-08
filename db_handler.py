@@ -35,6 +35,7 @@ class DBHandler:
             'attachments': str,
             'fwd_messages': str,
             'is_service_msg': int,
+            'service_msg_data': str,
             'edited': int,
             'has_formatting': int,
             'reply_to_id': int, # generated
