@@ -1,5 +1,4 @@
 import argparse
-import glob
 import os
 import time
 
@@ -7,16 +6,8 @@ from vkhtml_parser import VKhtmlParser
 from tgjson_parser import TGjsonParser
 from db_handler import DBHandler
 
-def scan_input_dir(dir_path, parser):
-    data_entries_list = []
-    parser.working_dir = dir_path
-    files_to_scan = glob.glob(f'{dir_path}/**/{parser.default_filename}', recursive=True)
-    for f in files_to_scan:
-        try:
-            data_entry = parser.create_data_entry(f)
-            data_entries_list.append(data_entry)
-        except Exception as e:
-            print(f'Skipping file {f}: {e}')
+def scan_input_path(parser):
+    data_entries_list = parser.create_data_entries()
     return data_entries_list
 
 def ask_user_before_parsing(data_entries_list):
@@ -56,12 +47,6 @@ def parse_chats(data_entries_list, data_parser):
     dbhandler.update_ids_in_db()
     elapsed_time = round(time.time() - start_time, 3)
     print(f'Done! Total time spent: {elapsed_time}s')
-    r_data_size = data_parser.read_bytes_count
-    current_db_size = os.path.getsize(dbhandler.db_path)
-    w_data_size = current_db_size - dbhandler.init_db_size
-    in_out_ratio = round(w_data_size * 100 / r_data_size, 2)
-    r_data_size, w_data_size = fmt_size(r_data_size), fmt_size(w_data_size)
-    print(f'Read {r_data_size} of data, written {w_data_size} ({in_out_ratio}% of original)')
 
 def select_chats(data_entries_list):
     new_data_entries_list = []
@@ -99,7 +84,7 @@ def main():
     args = argparser.parse_args()
 
     selected_parser = args.parser
-    input_dir = args.input
+    input_path = args.input
     db_file = args.db_file
     dbhandler = DBHandler(db_file)
 
@@ -108,14 +93,14 @@ def main():
     elif selected_parser == 'vkhtml':
         bs4_backend = args.bs4_backend
         proc_count = int(args.j) if args.j else os.cpu_count() // 2
-        data_parser = VKhtmlParser(bs4_backend, proc_count)
+        data_parser = VKhtmlParser(input_path, bs4_backend, proc_count)
     elif selected_parser == 'tgjson':
-        data_parser = TGjsonParser()
+        data_parser = TGjsonParser(input_path)
     else:
         print(f'Error: unknown parser {selected_parser}')
 
     if 'data_parser' in globals():
-        data_entries_list = scan_input_dir(input_dir, data_parser)
+        data_entries_list = scan_input_path(data_parser)
         if data_entries_list:
             ask_user_before_parsing(data_entries_list)
 

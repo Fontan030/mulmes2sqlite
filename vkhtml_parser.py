@@ -1,11 +1,12 @@
 import datetime
-import glob
 import json
 import logging
 import os
 from base64 import b64decode
 from bs4 import BeautifulSoup
 from tqdm import tqdm
+
+from input_handler import InputHandler
 
 try:
     import multiprocessing
@@ -14,14 +15,13 @@ except:
     mp_enabled = False
 
 class VKhtmlParser:
-    def __init__(self, bs4_backend, proc_count):
-        self.default_filename = 'messages0.html'
-        self.vk_encoding = 'cp1251'
+    def __init__(self, input_path, bs4_backend, proc_count):
+        vk_encoding, target_ext = 'cp1251', '.html'
+        self.inp = InputHandler(input_path, vk_encoding, target_ext)
         self.bs4_backend = bs4_backend
         self.proc_count = proc_count if mp_enabled else 1
         print(f'VKhtmlParser backend: {bs4_backend}, process count: {self.proc_count}')
         self.own_user_id = 0
-        self.read_bytes_count = 0
         self.usernames_dict = dict()
         self.months_dict = {
             'янв': '01', 'фев': '02', 'мар': '03', 'апр': '04',
@@ -66,41 +66,50 @@ class VKhtmlParser:
             'скриншот': 'take_screenshot' # сделал(а) скриншот чата
             }
 
-    def read_htm_file(self, filepath):
-        try:
-            with open(filepath, 'r', encoding=self.vk_encoding) as f:
-                return f.read()
-        except Exception as e:
-            logging.error(f'Error reading file: {e}')
-
-    def create_data_entry(self, filename):
-        dir_path = os.path.dirname(filename)
-        html_content = self.read_htm_file(filename)
-        soup = BeautifulSoup(html_content, self.bs4_backend)
-        ui_crumb_div = soup.find('div', class_='ui_crumb')
-        if ui_crumb_div:
-            chat_name = ui_crumb_div.text
-        if not self.own_user_id:
-            self.own_user_id = self.parse_own_id(soup)
-            self.own_username = self.parse_own_username()
-            print(f'Your ID and username: {self.own_user_id}, {self.own_username}')
-        data_entry = {'chat_count': 1, 'name': chat_name, 'path': dir_path}
-        return data_entry
+    def create_data_entries(self):
+        data_entries_list = []
+        target_filename = 'messages0.html'
+        full_file_list = self.inp.get_file_list()
+        files_to_scan = [f for f in full_file_list if f.endswith(target_filename)]
+        for filename in files_to_scan:
+            try:
+                dir_path = os.path.dirname(filename)
+                files_in_same_dir = []
+                for f in full_file_list:
+                    if os.path.dirname(f) == dir_path:
+                        files_in_same_dir.append(f)
+                raw_html = self.inp.get_file(filename)
+                soup = BeautifulSoup(raw_html, self.bs4_backend)
+                ui_crumb_div = soup.find('div', class_='ui_crumb')
+                if ui_crumb_div:
+                    chat_name = ui_crumb_div.text
+                if not self.own_user_id:
+                    self.own_user_id = self.parse_own_id(soup)
+                    self.own_username = self.parse_own_username(full_file_list)
+                    print(f'Your ID and username: {self.own_user_id}, {self.own_username}')
+                data_entry = {
+                    'chat_count': 1,
+                    'name': chat_name,
+                    'path': dir_path,
+                    'files': files_in_same_dir}
+                data_entries_list.append(data_entry)
+            except Exception as e:
+                print(f'Skipping file {filepath}: {e}')
+        return data_entries_list
 
     def process_data_entry(self, data_entry):
         chat_users = dict()
         data_path = data_entry['path']
         chat_id = int( os.path.basename(data_path) )
         peer_type = self.get_peer_type(chat_id)
-        html_list = [os.path.join(data_path, f) for f in os.listdir(data_path) if f.endswith('.html')]
+        html_list = data_entry['files']
         msg_list = []
         if self.proc_count != 1:
             with multiprocessing.Pool(self.proc_count) as pool:
                 p = pool.imap(self.process_single_html, html_list, chunksize=8)
-                for message_chunk, users_subset, r_b_count in tqdm(p, total=len(html_list)):
+                for message_chunk, users_subset in tqdm(p, total=len(html_list)):
                     msg_list.extend(message_chunk)
                     chat_users.update(users_subset)
-                    self.read_bytes_count += r_b_count
         else:
             for file in tqdm(html_list):
                 message_chunk, users_subset = self.process_single_html(file)
@@ -118,9 +127,8 @@ class VKhtmlParser:
         chat_id = os.path.basename(os.path.dirname(html_path))
         msg_list = []
         users_subset = dict()
-        html_content = self.read_htm_file(html_path)
-        soup = BeautifulSoup(html_content, self.bs4_backend)
-        r_b_count = os.path.getsize(html_path)
+        raw_html = self.inp.get_file(html_path)
+        soup = BeautifulSoup(raw_html, self.bs4_backend)
 
         for msg_div in soup.find_all('div', class_='message'):
             is_service_msg, service_msg_data = 0, None
@@ -166,7 +174,7 @@ class VKhtmlParser:
                 'data_src': 1}
             msg_list.append(processed_msg)
 
-        return msg_list, users_subset, r_b_count
+        return msg_list, users_subset
 
     def parse_msg_header(self, header_div):
         user_link = header_div.find('a')
@@ -249,13 +257,14 @@ class VKhtmlParser:
             own_user_id = 1
         return own_user_id
 
-    def parse_own_username(self):
+    def parse_own_username(self, full_file_list):
         own_name_placeholder = 'Вы'
+        pg_info_filename = 'page-info.html'
         try:
-            files_to_scan = glob.glob(f'{self.working_dir}/**/page-info.html', recursive=True)
+            files_to_scan = [f for f in full_file_list if f.endswith(pg_info_filename)]
             if files_to_scan:
-                html_content = self.read_htm_file(files_to_scan[0])
-                soup = BeautifulSoup(html_content, self.bs4_backend)
+                raw_html = self.inp.get_file(files_to_scan[0])
+                soup = BeautifulSoup(raw_html, self.bs4_backend)
                 search_str = 'Полное имя'
                 full_name_div = soup.find('div', class_='item__tertiary', string=search_str)
                 parent_div = full_name_div.find_parent('div')

@@ -2,11 +2,13 @@ import json
 import os
 import logging
 
+from input_handler import InputHandler
+
 class TGjsonParser:
-    def __init__(self):
+    def __init__(self, input_path):
+        tg_encoding, target_ext = 'utf-8', '.json'
+        self.inp = InputHandler(input_path, tg_encoding, target_ext)
         self.usernames_dict = dict()
-        self.default_filename = 'result.json'
-        self.tg_encoding = 'utf-8'
         self.plain_txt_types = ('plain', 'hashtag', 'custom_emoji','bot_command', 'phone')
         self.attachment_attrs = [ 'file_name', 'file_size', 'width', 'height', 'duration_seconds' ]
         self.not_included_strs = [
@@ -24,31 +26,34 @@ class TGjsonParser:
             'private_channel': 'channel',
             'public_channel': 'channel'
             }
-        self.read_bytes_count = 0
     
-    def read_json_file(self, filepath):
-        try:
-            with open(filepath, 'r', encoding=self.tg_encoding) as f:
-                return json.loads(f.read())
-        except Exception as e:
-            logging.error(f'Error reading file: {e}')
-    
-    def create_data_entry(self, filename):
-        dir_path = os.path.dirname(filename)
-        json_data = self.read_json_file(filename)
-        if 'chats' in json_data:
-            chat_count = len(json_data['chats']['list'])
-            name_str = f'Full data export ({chat_count} chats)'
-            data_entry = {'chat_count': chat_count, 'name': name_str, 'path': filename}
-        elif 'messages' in json_data:
-            data_entry = {'chat_count': 1, 'name': json_data['name'], 'path': filename}
-        return data_entry
+    def create_data_entries(self):
+        data_entries_list = []
+        target_filename = 'result.json'
+        full_file_list = self.inp.get_file_list()
+        files_to_scan = [f for f in full_file_list if f.endswith(target_filename)]
+        for filename in files_to_scan:
+            try:
+                raw_json = self.inp.get_file(filename)
+                json_data = json.loads(raw_json)
+                if 'chats' in json_data:
+                    chat_count = len(json_data['chats']['list'])
+                    name_str = f'Full data export ({chat_count} chats)'
+                elif 'messages' in json_data:
+                    chat_count, name_str = 1, json_data['name']
+                data_entry = {
+                    'chat_count': chat_count,
+                    'name': name_str,
+                    'path': filename}
+                data_entries_list.append(data_entry)
+            except Exception as e:
+                print(f'Skipping file {filepath}: {e}')
+        return data_entries_list
 
     def process_data_entry(self, data_entry):
         output_chat_list = []
-        json_path = data_entry['path']
-        json_data = self.read_json_file(json_path)
-        self.read_bytes_count += os.path.getsize(json_path)
+        raw_json = self.inp.get_file( data_entry['path'] )
+        json_data = json.loads(raw_json)
         if data_entry['chat_count'] == 1:
             chat_obj = self.process_single_chat(json_data)
             output_chat_list.append(chat_obj)
@@ -113,6 +118,8 @@ class TGjsonParser:
         return chat_obj
 
     def parse_user(self, user_id_str, username):
+        if not username:
+            username = 'DELETED'
         id_digits = ''.join(filter(str.isdigit, user_id_str))
         if user_id_str[:4] == 'user':
             user_id = int(id_digits)
