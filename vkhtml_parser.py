@@ -1,6 +1,5 @@
 import datetime
 import json
-import logging
 import os
 from base64 import b64decode
 from bs4 import BeautifulSoup
@@ -10,19 +9,19 @@ from input_handler import InputHandler
 
 try:
     import multiprocessing
-    mp_enabled = True
+    MP_ENABLED = True
 except:
-    mp_enabled = False
+    MP_ENABLED = False
 
 class VKhtmlParser:
-    def __init__(self, input_path, bs4_backend, proc_count):
+    def __init__(self, input_path: str, bs4_backend: str, proc_count: int):
         vk_encoding, target_ext = 'cp1251', '.html'
         self.inp = InputHandler(input_path, vk_encoding, target_ext)
         self.bs4_backend = bs4_backend
-        self.proc_count = proc_count if mp_enabled else 1
+        self.proc_count = proc_count if MP_ENABLED else 1
         print(f'VKhtmlParser backend: {bs4_backend}, process count: {self.proc_count}')
-        self.own_user_id = 0
-        self.usernames_dict = dict()
+        self.own_user_id, self.own_username = 0, ''
+        self.usernames_dict: dict[int, str] = {}
         self.months_dict = {
             'янв': '01', 'фев': '02', 'мар': '03', 'апр': '04',
             'мая': '05', 'июн': '06', 'июл': '07', 'авг': '08',
@@ -66,7 +65,7 @@ class VKhtmlParser:
             'скриншот': 'take_screenshot' # сделал(а) скриншот чата
             }
 
-    def create_data_entries(self):
+    def create_data_entries(self) -> list:
         data_entries_list = []
         target_filename = 'messages0.html'
         full_file_list = self.inp.get_file_list()
@@ -84,8 +83,8 @@ class VKhtmlParser:
                 if ui_crumb_div:
                     chat_name = ui_crumb_div.text
                 if not self.own_user_id:
-                    self.own_user_id = self.parse_own_id(soup)
-                    self.own_username = self.parse_own_username(full_file_list)
+                    self.parse_own_id(soup)
+                    self.parse_own_username(full_file_list)
                     print(f'Your ID and username: {self.own_user_id}, {self.own_username}')
                 data_entry = {
                     'chat_count': 1,
@@ -94,11 +93,11 @@ class VKhtmlParser:
                     'files': files_in_same_dir}
                 data_entries_list.append(data_entry)
             except Exception as e:
-                print(f'Skipping file {filepath}: {e}')
+                print(f'Skipping file {filename}: {e}')
         return data_entries_list
 
-    def process_data_entry(self, data_entry):
-        chat_users = dict()
+    def process_data_entry(self, data_entry: dict) -> list:
+        chat_users = {}
         data_path = data_entry['path']
         chat_id = int( os.path.basename(data_path) )
         peer_type = self.get_peer_type(chat_id)
@@ -123,10 +122,10 @@ class VKhtmlParser:
             'msg_list': msg_list}
         return [ chat_obj ]
 
-    def process_single_html(self, html_path):
+    def process_single_html(self, html_path: str):
         chat_id = os.path.basename(os.path.dirname(html_path))
         msg_list = []
-        users_subset = dict()
+        users_subset = {}
         raw_html = self.inp.get_file(html_path)
         soup = BeautifulSoup(raw_html, self.bs4_backend)
 
@@ -142,6 +141,8 @@ class VKhtmlParser:
                 if edited:
                     edited_span = header.find('span', class_='message-edited')
                     edited = self.parse_date(edited_span.get('title'))[0]
+            else:
+                continue
             kludges_div = msg_div.find('div', class_='kludges')
             if kludges_div:
                 attachments_raw = kludges_div.find_all('div', class_='attachment')
@@ -186,7 +187,7 @@ class VKhtmlParser:
             user_id = self.extract_uid_from_url(vk_url)
         return user_id, username
 
-    def extract_uid_from_url(self, vk_url):
+    def extract_uid_from_url(self, vk_url: str) -> int:
         user_id_str = vk_url.split('/')[-1]
         id_digits = ''.join(filter(str.isdigit, user_id_str))
         if user_id_str[:2] == 'id':
@@ -195,13 +196,10 @@ class VKhtmlParser:
             user_id = int(id_digits) * -1
         return user_id
 
-    def parse_date(self, date_str):
+    def parse_date(self, date_str: str):
         edited = 0
         try:
-            parts = date_str.strip().split(' в ')
-            if len(parts) != 2:
-                return 0, 0
-            date_part, time_part = parts
+            date_part, time_part = date_str.strip().split(' в ')
             day, month_name, year = date_part.split()
             month = self.months_dict.get(month_name.lower())
             if not month:
@@ -209,19 +207,19 @@ class VKhtmlParser:
             if 'ред.' in time_part:
                 edited = 1
                 time_part = time_part.split()[0]
-            hour, min, sec = time_part.split(':')
-            datetime_args = list(map(int, (year, month, day, hour, min, sec)))
+            hour, minute, sec = time_part.split(':')
+            datetime_args = list(map(int, (year, month, day, hour, minute, sec)))
             unix_timestamp = int(datetime.datetime(*datetime_args).timestamp())
             return unix_timestamp, edited
         except Exception as e:
-            logging.error(f'Error parsing date {date_str}: {e}')
+            print(f'Error parsing date {date_str}: {e}')
             return 0, 0
 
     def parse_attachments(self, attachments_raw):
         attachments_list = []
         fwd_messages = None
         for a in attachments_raw:
-            att = dict()
+            att = {}
             bs4_desc = a.find('div', class_='attachment__description').get_text()
             if 'прикреп' in bs4_desc:
                 fwd_msg_count = int( bs4_desc.split()[0] )
@@ -252,12 +250,11 @@ class VKhtmlParser:
             while len(base64_json) % 4 != 0:
                 base64_json += '=' # padding for b64decode
             decoded_json = json.loads( b64decode(base64_json) )
-            own_user_id = decoded_json['user_id']
+            self.own_user_id = decoded_json['user_id']
         except:
-            own_user_id = 1
-        return own_user_id
+            self.own_user_id = 1
 
-    def parse_own_username(self, full_file_list):
+    def parse_own_username(self, full_file_list: list):
         own_name_placeholder = 'Вы'
         pg_info_filename = 'page-info.html'
         try:
@@ -271,12 +268,11 @@ class VKhtmlParser:
                 username_div = parent_div.select('div > div')[1]
                 own_username_raw = username_div.get_text(strip=True)
             # remove double space '  '
-            own_username = ' '.join(own_username_raw.split())
+            self.own_username = ' '.join(own_username_raw.split())
         except:
-            own_username = own_name_placeholder
-        return own_username
+            self.own_username = own_name_placeholder
 
-    def get_peer_type(self, chat_id):
+    def get_peer_type(self, chat_id: int) -> str:
         if chat_id >= 0:
             peer_type = 'user' if chat_id < 2000000000 else 'group_chat'
             if chat_id == 100:

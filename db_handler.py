@@ -2,7 +2,7 @@ import os
 from sqlite_utils import Database
 
 class DBHandler:
-    def __init__(self, db_path):
+    def __init__(self, db_path: str):
         self.db_path = db_path
         self.src_dict = {
             'vk': 1,
@@ -10,7 +10,7 @@ class DBHandler:
             'wa': 3 }
         self.db = Database(db_path)
         self.msg_counter = 0
-        if self.db['messages'].exists() == False:
+        if not self.db['messages'].exists():
             self.create_db()
             self.init_db_size = 0
         else:
@@ -65,9 +65,9 @@ class DBHandler:
             ORDER BY messages.date;
         """)
 
-    def insert_chat_to_db(self, chat_obj, data_src):
+    def insert_chat_to_db(self, chat_obj: dict, data_src: str):
         msg_list = chat_obj['msg_list']
-        self.db['messages'].insert_all({k: v for k, v in msg.items() } for msg in msg_list)
+        self.db['messages'].insert_all(dict( msg.items() ) for msg in msg_list)
         last_msg = max(msg_list, key=lambda x:x['date'])
         self.db['chats'].insert({
             'chat_id_orig': chat_obj['id'],
@@ -78,7 +78,7 @@ class DBHandler:
             'data_src': self.src_dict[data_src]})
         self.msg_counter += len(msg_list)
 
-    def insert_users_to_db(self, usernames_dict, data_src):
+    def insert_users_to_db(self, usernames_dict: dict[int, str], data_src: str):
         new_users = []
         known_orig_ids = []
         for row in self.db['usernames'].rows:
@@ -90,7 +90,7 @@ class DBHandler:
                     'name': username,
                     'orig_id': orig_id,
                     'data_src': self.src_dict[data_src]} )
-        self.db['usernames'].insert_all({k: v for k, v in user.items() } for user in new_users)
+        self.db['usernames'].insert_all(dict( user.items() ) for user in new_users)
 
     def update_ids_in_db(self):
         update_from_id_query = """
